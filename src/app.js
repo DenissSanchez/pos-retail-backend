@@ -4,11 +4,23 @@ const path = require("path");
 
 const app = express();
 
-// 2. CONFIGURA CORS ANTES DE LAS RUTAS
-// Esto le da permiso explícito a tu frontend (puerto 5173) para conectarse
+// 2. CONFIGURA CORS DINÁMICO
+// Permite peticiones desde tu localhost de desarrollo y desde tu frontend en Vercel
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://pos-retail-frontend.vercel.app" // 👈 Recuerda cambiar esta URL si tu dominio en Vercel es diferente
+];
+
 app.use(cors({
-  origin: "http://localhost:5173",
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"], // 👈 ¡Agregado PATCH!
+  origin: function (origin, callback) {
+    // Permitir solicitudes sin origen (como Postman o apps móviles) o si están en la lista blanca
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error("Bloqueado por CORS"));
+    }
+  },
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   credentials: true
 }));
 
@@ -38,11 +50,12 @@ const saleRoutes = require('./routes/sale.routes');
 const reportRoutes = require('./routes/report.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const authRoutes = require('./routes/auth.routes');
-const sessionRoutes = require('./routes/session.routes'); // 👈 Importas session.routes
+const sessionRoutes = require('./routes/session.routes');
 
 app.use('/api/settings', settingsRoutes);
 app.use('/api/auth', authRoutes);
-app.use('/api/sessions', sessionRoutes); // 👈 Registras el prefijo /api/sessions
+app.use('/api/sessions', sessionRoutes);
+
 // Registro de rutas en Express
 app.use('/api/sales', saleRoutes);
 app.use('/api/reports', reportRoutes);
