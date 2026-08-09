@@ -9,7 +9,7 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:5173",
   "https://pos-retail-frontend.vercel.app", // 👈 Recuerda cambiar esta URL si tu dominio en Vercel es diferente
-  "https://pos-retail-frontend-d6w6sz7lp-casa-orquidia.vercel.app/login"
+  "https://pos-retail-frontend-d6w6sz7lp-casa-orquidia.vercel.app"
 ];
 
 app.use(cors({
