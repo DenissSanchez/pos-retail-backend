@@ -7,7 +7,7 @@ const {
   generateBarcode
 } = require("../utils/code-generator");
 
-const COMPANY_ID = "05b26fda-d1ac-4991-bf4a-4e8b7aad0116"; // ID de la empresa "Casa Orquidia" en la base de datos
+const COMPANY_ID = "10bb76dc-ab50-4a5f-9a95-b11444ecca9e"; // ID de la empresa "Casa Orquidia" en la base de datos
 
 const normalize = (value) => {
   if (value === null || value === undefined) {
