@@ -7,7 +7,7 @@ const {
   generateBarcode
 } = require("../utils/code-generator");
 
-const COMPANY_ID = "10bb76dc-ab50-4a5f-9a95-b11444ecca9e"; // ID de la empresa "Casa Orquidia" en la base de datos
+const COMPANY_ID = "10bb76dc-ab50-4a5f-9a95-b11444ecca9e";
 
 const normalize = (value) => {
   if (value === null || value === undefined) {
@@ -16,14 +16,19 @@ const normalize = (value) => {
   return String(value).trim().toUpperCase();
 };
 
+const parseSafeNumber = (value, fallback = 0, isInteger = false) => {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return fallback;
+  }
+  const cleaned = String(value).replace(/[$,\s]/g, "");
+  const parsed = isInteger ? parseInt(cleaned, 10) : parseFloat(cleaned);
+  return isNaN(parsed) ? fallback : parsed;
+};
+
 const buildVariantKey = (productId, colorId, sizeId) => {
   return `${productId}-${colorId || "NULL"}-${sizeId || "NULL"}`;
 };
 
-/**
- * Obtiene el siguiente número secuencial disponible para el Barcode
- * consultando directamente la base de datos para evitar colisiones (P2002).
- */
 const getHighestBarcodeNumber = async () => {
   const lastVariant = await prisma.productVariant.findFirst({
     where: { barcode: { startsWith: "75000" } },
@@ -117,7 +122,7 @@ const previewImport = async (rows, options = {}) => {
     if (!product) {
       summary.validRows++;
       summary.newProducts++;
-      
+
       const tempProduct = { id: `TEMP_${normProductName}`, name: row.Producto };
       productMap.set(normProductName, tempProduct);
 
@@ -141,7 +146,9 @@ const previewImport = async (rows, options = {}) => {
     }
 
     let sizeId = null;
-    const sizeName = row.Talla ? String(row.Talla) : "SIN TALLA";
+    const sizeName = row.Talla !== undefined && row.Talla !== null && String(row.Talla).trim() !== ""
+      ? String(row.Talla).trim()
+      : "SIN TALLA";
     const size = sizeMap.get(normalize(sizeName));
     if (size) {
       sizeId = size.id;
@@ -209,23 +216,23 @@ const importProducts = async (
 
   let imported = 0;
 
-  const defaultStore = await prisma.store.findFirst();
+  // Obtenemos TODAS las sucursales para compartir el inventario entre ellas
+  const stores = await prisma.store.findMany();
 
-  if (!defaultStore) {
+  if (!stores || stores.length === 0) {
     throw new Error("No se encontró ninguna sucursal configurada en la base de datos.");
   }
 
-  // Obtenemos secuencia y el barcode máximo de la BD para garantizar sincronización única
+  // Obtenemos secuencia y el barcode máximo de la BD
   let sequence = await repository.getSequence();
   let highestBarcodeInDb = await getHighestBarcodeNumber();
 
-  let currentSeq = sequence ? sequence.currentValue : 1;
+  let currentSeq = sequence ? (sequence.nextBarcode || sequence.nextProductSku || 1) : 1;
 
-  // Si el mayor barcode registrado es mayor que la secuencia actual, alineamos la secuencia
   if (highestBarcodeInDb > 0) {
-    const highestSeqInDb = highestBarcodeInDb % 750000000000; // Extrae los últimos dígitos
-    if (highestSeqInDb >= currentSeq) {
-      currentSeq = highestSeqInDb;
+    const numericSuffix = highestBarcodeInDb % 10000;
+    if (numericSuffix >= currentSeq) {
+      currentSeq = numericSuffix;
     }
   }
 
@@ -287,7 +294,9 @@ const importProducts = async (
       }
 
       // 4. COLOR
-      const colorName = row.Color ? String(row.Color).trim() : "SIN COLOR";
+      const colorName = row.Color && String(row.Color).trim() !== ""
+        ? String(row.Color).trim()
+        : "SIN COLOR";
       let color = await repository.findColor(colorName);
 
       if (!color) {
@@ -299,7 +308,9 @@ const importProducts = async (
       }
 
       // 5. TALLA
-      const sizeName = row.Talla ? String(row.Talla) : "SIN TALLA";
+      const sizeName = row.Talla !== undefined && row.Talla !== null && String(row.Talla).trim() !== ""
+        ? String(row.Talla).trim()
+        : "SIN TALLA";
       let size = await repository.findSize(sizeName);
 
       if (!size) {
@@ -311,6 +322,12 @@ const importProducts = async (
         });
       }
 
+      const parsedPrice = parseSafeNumber(row.Precio, 0, false);
+      const parsedCost = parseSafeNumber(row.Costo, 0, false);
+      const cleanSupplierSku = row.SKUProveedor && String(row.SKUProveedor).trim() !== ""
+        ? String(row.SKUProveedor).trim()
+        : null;
+
       // 6. BUSCAR O CREAR VARIANTE
       let variant = await repository.findVariant(product.id, color.id, size.id);
 
@@ -319,7 +336,7 @@ const importProducts = async (
 
         const formattedSeq = String(currentSeq).padStart(4, "0");
         const sku = `PRD-${brand.code}-${formattedSeq}`;
-        const barcode = generateBarcode ? generateBarcode(currentSeq) : `75000000${formattedSeq}`;
+        const barcode = `75000000${formattedSeq}`;
 
         const variantDataToInsert = {
           productId: product.id,
@@ -327,9 +344,9 @@ const importProducts = async (
           sizeId: size.id,
           sku,
           barcode,
-          supplierSku: row.SKUProveedor ? String(row.SKUProveedor).trim() : null,
-          cost: row.Costo ? parseFloat(row.Costo) : 0,
-          price: row.Precio ? parseFloat(row.Precio) : 0,
+          supplierSku: cleanSupplierSku,
+          cost: parsedCost,
+          price: parsedPrice,
           active: true
         };
 
@@ -351,9 +368,9 @@ const importProducts = async (
       } else {
         console.log(`🔄 Variante ya existía (${variant.sku}), actualizando datos...`);
         variant = await repository.updateVariant(variant.id, {
-          price: row.Precio ? parseFloat(row.Precio) : variant.price,
-          cost: row.Costo ? parseFloat(row.Costo) : variant.cost,
-          supplierSku: row.SKUProveedor ? String(row.SKUProveedor).trim() : variant.supplierSku
+          price: opts.updatePrices ? parsedPrice : variant.price,
+          cost: opts.updateCosts ? parsedCost : variant.cost,
+          supplierSku: opts.updateSupplierSku ? cleanSupplierSku : variant.supplierSku
         });
         imported++;
         summary.updates++;
@@ -366,20 +383,25 @@ const importProducts = async (
         });
       }
 
-      // 7. INVENTARIO
-      const stock = row.Existencia ? parseInt(row.Existencia, 10) : 0;
-      let inventory = await repository.findInventory(variant.id, defaultStore.id);
+      // 7. INVENTARIO COMPARTIDO EN TODAS LAS SUCURSALES
+      if (opts.updateStock) {
+        const stock = parseSafeNumber(row.Existencia, 0, true);
 
-      if (!inventory) {
-        await repository.createInventory({
-          variant: { connect: { id: variant.id } },
-          store: { connect: { id: defaultStore.id } },
-          stock
-        });
-        console.log(`📦 Inventario creado para ${variant.sku} con stock: ${stock}`);
-      } else {
-        await repository.updateInventory(inventory.id, stock);
-        console.log(`📦 Stock actualizado para ${variant.sku} a: ${stock}`);
+        for (const store of stores) {
+          let inventory = await repository.findInventory(variant.id, store.id);
+
+          if (!inventory) {
+            await repository.createInventory({
+              variant: { connect: { id: variant.id } },
+              store: { connect: { id: store.id } },
+              stock
+            });
+            console.log(`📦 Inventario creado para ${variant.sku} en ${store.name || store.id} con stock: ${stock}`);
+          } else {
+            await repository.updateInventory(inventory.id, stock);
+            console.log(`📦 Stock actualizado para ${variant.sku} en ${store.name || store.id} a: ${stock}`);
+          }
+        }
       }
 
     } catch (rowError) {
@@ -395,10 +417,11 @@ const importProducts = async (
 
   const durationMs = Date.now() - startTime;
 
-  // ACTUALIZAR SECUENCIA EN BD
+  // ACTUALIZAR SECUENCIA EN BD USANDO LOS CAMPOS CORRECTOS
   if (sequence) {
     await repository.updateSequence(sequence.id, {
-      currentValue: currentSeq
+      nextBarcode: currentSeq,
+      nextProductSku: currentSeq
     });
   }
 
@@ -407,7 +430,6 @@ const importProducts = async (
   console.log(`Filas procesadas con éxito: ${imported}`);
   console.log("======================================");
 
-  // GUARDADO DE HISTORIAL CON METADATOS DEL ARCHIVO
   try {
     await historyService.saveImportHistory({
       fileName: fileData?.originalname || options.fileName || `Importación ${new Date().toLocaleString()}`,

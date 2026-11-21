@@ -8,9 +8,9 @@ const findCategory = (name) => {
     where: {
       name: {
         equals: String(name).trim(),
-        mode: "insensitive"
-      }
-    }
+        mode: "insensitive",
+      },
+    },
   });
 };
 
@@ -19,8 +19,8 @@ const createCategory = (data) => {
     data: {
       ...data,
       name: String(data.name).trim(),
-      code: String(data.code).trim().toUpperCase()
-    }
+      code: String(data.code).trim().toUpperCase(),
+    },
   });
 };
 
@@ -32,9 +32,9 @@ const findBrand = (name) => {
     where: {
       name: {
         equals: String(name).trim(),
-        mode: "insensitive"
-      }
-    }
+        mode: "insensitive",
+      },
+    },
   });
 };
 
@@ -43,8 +43,8 @@ const createBrand = (data) => {
     data: {
       ...data,
       name: String(data.name).trim(),
-      code: String(data.code).trim().toUpperCase()
-    }
+      code: String(data.code).trim().toUpperCase(),
+    },
   });
 };
 
@@ -56,9 +56,9 @@ const findColor = (name) => {
     where: {
       name: {
         equals: String(name).trim(),
-        mode: "insensitive"
-      }
-    }
+        mode: "insensitive",
+      },
+    },
   });
 };
 
@@ -66,8 +66,8 @@ const createColor = (data) => {
   return prisma.color.create({
     data: {
       name: String(data.name).trim(),
-      code: String(data.code || data.name).trim().toUpperCase()
-    }
+      code: String(data.code || data.name).trim().toUpperCase(),
+    },
   });
 };
 
@@ -79,9 +79,9 @@ const findSize = (name) => {
     where: {
       name: {
         equals: String(name).trim(),
-        mode: "insensitive"
-      }
-    }
+        mode: "insensitive",
+      },
+    },
   });
 };
 
@@ -90,8 +90,8 @@ const createSize = (data) => {
     data: {
       name: String(data.name).trim(),
       code: String(data.code || data.name).trim().toUpperCase(),
-      order: Number(data.order) || 1
-    }
+      order: Number(data.order) || 1,
+    },
   });
 };
 
@@ -104,17 +104,15 @@ const findProduct = (companyId, name) => {
       companyId,
       name: {
         equals: String(name).trim(),
-        mode: "insensitive"
-      }
-    }
+        mode: "insensitive",
+      },
+    },
   });
 };
 
-// C:\Dev\PosRetail\backend\src\repositories\import.repository.js
-
 const createProduct = (productData) => {
   return prisma.product.create({
-    data: productData
+    data: productData,
   });
 };
 
@@ -125,17 +123,17 @@ const findVariant = (productId, colorId, sizeId) => {
   return prisma.productVariant.findFirst({
     where: {
       productId,
-      colorId, // 🟢 Eliminado '|| null'
-      sizeId   // 🟢 Eliminado '|| null'
-    }
+      colorId,
+      sizeId,
+    },
   });
 };
 
 const findVariantBySku = (sku) => {
   return prisma.productVariant.findUnique({
     where: {
-      sku: String(sku).trim()
-    }
+      sku: String(sku).trim(),
+    },
   });
 };
 
@@ -143,22 +141,22 @@ const createVariant = (data) => {
   return prisma.productVariant.create({
     data: {
       productId: data.productId,
-      colorId: data.colorId, // 🟢 Eliminado '|| null'
-      sizeId: data.sizeId,   // 🟢 Eliminado '|| null'
+      colorId: data.colorId,
+      sizeId: data.sizeId,
       sku: String(data.sku).trim(),
       barcode: data.barcode ? String(data.barcode).trim() : null,
       supplierSku: data.supplierSku ? String(data.supplierSku).trim() : null,
       cost: Number(data.cost) || 0,
       price: Number(data.price) || 0,
-      active: data.active ?? true
-    }
+      active: data.active ?? true,
+    },
   });
 };
 
 const updateVariant = (id, data) => {
   return prisma.productVariant.update({
     where: { id },
-    data
+    data,
   });
 };
 
@@ -166,8 +164,19 @@ const updateVariant = (id, data) => {
 // INVENTARIO
 // ==========================
 const createInventory = (data) => {
+  const productVariantId =
+    data.productVariantId || data.variant?.connect?.id;
+  const storeId = data.storeId || data.store?.connect?.id;
+  const stock = Number(data.stock) || 0;
+
   return prisma.inventory.create({
-    data
+    data: {
+      productVariantId,
+      storeId,
+      stock,
+      ...(data.minimumStock !== undefined ? { minimumStock: Number(data.minimumStock) || 0 } : {}),
+      ...(data.maximumStock !== undefined ? { maximumStock: data.maximumStock } : {}),
+    },
   });
 };
 
@@ -175,15 +184,15 @@ const findInventory = (variantId, storeId) => {
   return prisma.inventory.findFirst({
     where: {
       productVariantId: variantId,
-      storeId
-    }
+      storeId,
+    },
   });
 };
 
 const updateInventory = (id, stock) => {
   return prisma.inventory.update({
     where: { id },
-    data: { stock: Number(stock) || 0 }
+    data: { stock: Number(stock) || 0 },
   });
 };
 
@@ -195,9 +204,27 @@ const getSequence = () => {
 };
 
 const updateSequence = (id, data) => {
+  const safeData = {};
+
+  if (data.nextProductSku !== undefined && Number.isFinite(Number(data.nextProductSku))) {
+    safeData.nextProductSku = Number(data.nextProductSku);
+  }
+  if (data.nextBarcode !== undefined && Number.isFinite(Number(data.nextBarcode))) {
+    safeData.nextBarcode = Number(data.nextBarcode);
+  }
+  if (data.nextSaleNumber !== undefined && Number.isFinite(Number(data.nextSaleNumber))) {
+    safeData.nextSaleNumber = Number(data.nextSaleNumber);
+  }
+  if (data.nextPurchaseNumber !== undefined && Number.isFinite(Number(data.nextPurchaseNumber))) {
+    safeData.nextPurchaseNumber = Number(data.nextPurchaseNumber);
+  }
+  if (data.nextTransferNumber !== undefined && Number.isFinite(Number(data.nextTransferNumber))) {
+    safeData.nextTransferNumber = Number(data.nextTransferNumber);
+  }
+
   return prisma.sequence.update({
     where: { id },
-    data
+    data: safeData,
   });
 };
 
@@ -208,7 +235,7 @@ const getAllSizes = () => prisma.size.findMany();
 
 const getAllProducts = (companyId) => {
   return prisma.product.findMany({
-    where: { companyId }
+    where: { companyId },
   });
 };
 
@@ -239,5 +266,5 @@ module.exports = {
   getAllColors,
   getAllSizes,
   getAllProducts,
-  getAllVariants
+  getAllVariants,
 };
