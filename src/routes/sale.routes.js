@@ -10,8 +10,11 @@ router.get("/dashboard", controller.getDashboardStats);
 // GET /api/sales/search?code=123456&storeId=uuid-tienda
 router.get("/search", controller.searchProduct);
 
-// 2. RUTAS POST (Creación)
+// 2. RUTAS POST (Creación y Cobro)
 // POST /api/sales
 router.post("/", controller.createSale);
+
+// POST /api/sales/checkout
+router.post("/checkout", controller.createSale);
 
 module.exports = router;
