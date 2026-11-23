@@ -2,6 +2,51 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 /**
+ * Helper interno para acumular ventas por método de pago con fallback seguro.
+ */
+const calculateSalesBreakdown = (sales = []) => {
+  let salesCash = 0;
+  let salesCard = 0;
+  let salesTransfer = 0;
+  let salesMixed = 0;
+
+  sales.forEach((sale) => {
+    const method = (sale.paymentMethod || "").toUpperCase();
+    const total = parseFloat(sale.total || 0);
+
+    const rawCash = parseFloat(sale.paidCash || 0);
+    const rawCard = parseFloat(sale.paidCard || 0);
+    const rawTransfer = parseFloat(sale.paidTransfer || 0);
+
+    const cashPart =
+      rawCash > 0 ? rawCash : method === "EFECTIVO" ? total : 0;
+    const cardPart =
+      rawCard > 0 ? rawCard : method === "TARJETA" ? total : 0;
+    const transferPart =
+      rawTransfer > 0 ? rawTransfer : method === "TRANSFERENCIA" ? total : 0;
+
+    salesCash += cashPart;
+    salesCard += cardPart;
+    salesTransfer += transferPart;
+
+    if (method === "MIXTO") {
+      salesMixed += total;
+    }
+  });
+
+  const totalSales = sales.reduce((acc, sale) => acc + parseFloat(sale.total || 0), 0);
+
+  return {
+    salesCash,
+    salesCard,
+    salesTransfer,
+    salesMixed,
+    totalSales,
+    totalTransactions: sales.length,
+  };
+};
+
+/**
  * Abre una nueva sesión de caja.
  */
 const openSession = async ({ registerId, userId, initialCash }) => {
@@ -78,47 +123,23 @@ const getSessionSummary = async (sessionId) => {
     throw new Error("No se encontró la sesión de caja especificada.");
   }
 
-  // Acumuladores por tipo de flujo de dinero real
-  let salesCash = 0;
-  let salesCard = 0;
-  let salesTransfer = 0;
-  let salesMixed = 0;
-
-  session.sales.forEach((sale) => {
-    const method = (sale.paymentMethod || "").toUpperCase();
-    const total = parseFloat(sale.total || 0);
-
-    // Sumamos utilizando los campos reales desglosados (incluyendo la porción de los pagos mixtos)
-    const cashPart = parseFloat(sale.paidCash || 0);
-    const cardPart = parseFloat(sale.paidCard || 0);
-    const transferPart = parseFloat(sale.paidTransfer || 0);
-
-    salesCash += cashPart;
-    salesCard += cardPart;
-    salesTransfer += transferPart;
-
-    if (method === "MIXTO") {
-      salesMixed += total;
-    }
-  });
-
-  const totalSales = session.sales.reduce((acc, sale) => acc + parseFloat(sale.total || 0), 0);
+  const breakdown = calculateSalesBreakdown(session.sales);
   const initialCash = parseFloat(session.initialCash || 0);
-  
+
   // El efectivo esperado en el cajón físico es: Fondo Inicial + Todo el efectivo recibido
-  const expectedCash = initialCash + salesCash;
+  const expectedCash = initialCash + breakdown.salesCash;
 
   return {
     sessionId: session.id,
     openedAt: session.openedAt,
     initialCash,
-    salesCash,
-    salesCard,
-    salesTransfer,
-    salesMixed,
-    totalSales,
+    salesCash: breakdown.salesCash,
+    salesCard: breakdown.salesCard,
+    salesTransfer: breakdown.salesTransfer,
+    salesMixed: breakdown.salesMixed,
+    totalSales: breakdown.totalSales,
     expectedCash,
-    totalTransactions: session.sales.length,
+    totalTransactions: breakdown.totalTransactions,
   };
 };
 
@@ -156,7 +177,14 @@ const closeSession = async ({ sessionId, finalCash, notes }) => {
     },
   });
 
-  return closedSession;
+  return {
+    ...closedSession,
+    salesCash: summary.salesCash,
+    salesCard: summary.salesCard,
+    salesTransfer: summary.salesTransfer,
+    salesMixed: summary.salesMixed,
+    totalSales: summary.totalSales,
+  };
 };
 
 /**
@@ -201,34 +229,16 @@ const getSessionHistory = async ({ storeId, startDate, endDate }) => {
 
   // Mapear cada sesión agregando sus totales desglosados correctamente
   const formattedHistory = history.map((session) => {
-    let salesCash = 0;
-    let salesCard = 0;
-    let salesTransfer = 0;
-    let salesMixed = 0;
-
-    session.sales.forEach((sale) => {
-      const method = (sale.paymentMethod || "").toUpperCase();
-      const total = parseFloat(sale.total || 0);
-
-      salesCash += parseFloat(sale.paidCash || 0);
-      salesCard += parseFloat(sale.paidCard || 0);
-      salesTransfer += parseFloat(sale.paidTransfer || 0);
-
-      if (method === "MIXTO") {
-        salesMixed += total;
-      }
-    });
-
-    const totalSales = session.sales.reduce((acc, sale) => acc + parseFloat(sale.total || 0), 0);
+    const breakdown = calculateSalesBreakdown(session.sales);
 
     return {
       ...session,
-      salesCash,
-      salesCard,
-      salesTransfer,
-      salesMixed,
-      totalSales,
-      totalTransactions: session.sales.length,
+      salesCash: breakdown.salesCash,
+      salesCard: breakdown.salesCard,
+      salesTransfer: breakdown.salesTransfer,
+      salesMixed: breakdown.salesMixed,
+      totalSales: breakdown.totalSales,
+      totalTransactions: breakdown.totalTransactions,
     };
   });
 
